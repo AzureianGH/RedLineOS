@@ -1,0 +1,17 @@
+{
+    "files.associations": {
+        "*.json": "json",
+        "stdlib.h": "c",
+        "string.h": "c",
+        "boot.h": "c",
+        "displaystandard.h": "c",
+        "cstdio": "cpp",
+        "stdio.h": "c",
+        "nanoprintf.h": "c",
+        "limine.h": "c",
+        "palloc.h": "c",
+        "lprintf.h": "c",
+        "stdint.h": "c",
+        "cstddef": "c"
+    }
+}
