@@ -12,6 +12,7 @@
         "palloc.h": "c",
         "lprintf.h": "c",
         "stdint.h": "c",
-        "cstddef": "c"
+        "cstddef": "c",
+        "stdatomic.h": "c"
     }
 }

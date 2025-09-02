@@ -87,14 +87,6 @@ extern void kmain(void) {
             case TIMER_SRC_HPET:  success_printf("Using HPET for timing (no IRQ tick yet)\n"); break;
             case TIMER_SRC_PIT:   success_printf("Using PIT at 1000 Hz (legacy)\n"); break;
         }
-        // Register demo tick callback when we have an IRQ-based tick source.
-        if (timer_source() == TIMER_SRC_LAPIC || timer_source() == TIMER_SRC_PIT) {
-            if (timer_on_tick(demo_tick_cb) == 0) {
-                info_printf("Demo: registered tick callback (prints uptime every second)\n");
-            } else {
-                error_printf("Demo: failed to register tick callback\n");
-            }
-        }
     }
     // After LAPIC timer is active and PIC lines masked, wire HPET IRQ to IOAPIC/LAPIC
     if (hpet_supported() && ioapic_supported()) {
@@ -105,19 +97,9 @@ extern void kmain(void) {
         }
     }
 
-    // Optional RTC periodic init (PIC IRQ8 is masked above; unmask only if PIT/RTC used)
-    // rtc_init_periodic(6);
     info_printf("Initializing stelloc heap allocator...\n");
     stelloc_init_heap();
-    printf("\n");
-    // Idle loop: print uptime every ~250ms; HLT saves CPU until next tick IRQ.
-    unsigned long long last_print_ticks = 0;
-    for (;;) {
-        asm ("hlt");
-        unsigned long long t = demo_ticks;
-        unsigned long long secs = t / 1000ULL;
-        unsigned long long msec = t % 1000ULL;
-        printf("\rDemo: uptime %llu.%03llus (ticks=%llu) HPET_IRQs=%llu", secs, msec, t, (unsigned long long)hpet_get_irq_count());
-        last_print_ticks = t;
-    }
+    success_printf("Stelloc heap allocator initialized.\n");
+    success_printf("Kernel initialization complete.\n");
+    hcf();
 }
