@@ -15,6 +15,32 @@
 #ifndef __FREESTND_C_HDRS_STDINT_H
 #define __FREESTND_C_HDRS_STDINT_H 1
 
+#ifndef __INT8_TYPE__
+#define __INT8_TYPE__ signed char
+#endif
+#ifndef __INT16_TYPE__
+#define __INT16_TYPE__ short int
+#endif
+#ifndef __INT32_TYPE__
+#define __INT32_TYPE__ int
+#endif
+#ifndef __INT64_TYPE__
+#define __INT64_TYPE__ long long int
+#endif
+
+#ifndef __UINT8_TYPE__
+#define __UINT8_TYPE__ unsigned char
+#endif
+#ifndef __UINT16_TYPE__
+#define __UINT16_TYPE__ unsigned short int
+#endif
+#ifndef __UINT32_TYPE__
+#define __UINT32_TYPE__ unsigned int
+#endif
+#ifndef __UINT64_TYPE__
+#define __UINT64_TYPE__ unsigned long long int
+#endif
+
 #ifdef __UINT8_TYPE__
 typedef __UINT8_TYPE__ uint8_t;
 #endif
@@ -26,6 +52,32 @@ typedef __UINT32_TYPE__ uint32_t;
 #endif
 #ifdef __UINT64_TYPE__
 typedef __UINT64_TYPE__ uint64_t;
+#endif
+
+#ifndef __UINT_LEAST8_TYPE__
+#define __UINT_LEAST8_TYPE__ __UINT8_TYPE__
+#endif
+#ifndef __UINT_LEAST16_TYPE__
+#define __UINT_LEAST16_TYPE__ __UINT16_TYPE__
+#endif
+#ifndef __UINT_LEAST32_TYPE__
+#define __UINT_LEAST32_TYPE__ __UINT32_TYPE__
+#endif
+#ifndef __UINT_LEAST64_TYPE__
+#define __UINT_LEAST64_TYPE__ __UINT64_TYPE__
+#endif
+
+#ifndef __UINT_FAST8_TYPE__
+#define __UINT_FAST8_TYPE__ __UINT32_TYPE__
+#endif
+#ifndef __UINT_FAST16_TYPE__
+#define __UINT_FAST16_TYPE__ __UINT32_TYPE__
+#endif
+#ifndef __UINT_FAST32_TYPE__
+#define __UINT_FAST32_TYPE__ __UINT32_TYPE__
+#endif
+#ifndef __UINT_FAST64_TYPE__
+#define __UINT_FAST64_TYPE__ __UINT64_TYPE__
 #endif
 
 typedef __UINT_LEAST8_TYPE__ uint_least8_t;
@@ -51,6 +103,32 @@ typedef __INT32_TYPE__ int32_t;
 typedef __INT64_TYPE__ int64_t;
 #endif
 
+#ifndef __INT_LEAST8_TYPE__
+#define __INT_LEAST8_TYPE__ __INT8_TYPE__
+#endif
+#ifndef __INT_LEAST16_TYPE__
+#define __INT_LEAST16_TYPE__ __INT16_TYPE__
+#endif
+#ifndef __INT_LEAST32_TYPE__
+#define __INT_LEAST32_TYPE__ __INT32_TYPE__
+#endif
+#ifndef __INT_LEAST64_TYPE__
+#define __INT_LEAST64_TYPE__ __INT64_TYPE__
+#endif
+
+#ifndef __INT_FAST8_TYPE__
+#define __INT_FAST8_TYPE__ __INT32_TYPE__
+#endif
+#ifndef __INT_FAST16_TYPE__
+#define __INT_FAST16_TYPE__ __INT32_TYPE__
+#endif
+#ifndef __INT_FAST32_TYPE__
+#define __INT_FAST32_TYPE__ __INT32_TYPE__
+#endif
+#ifndef __INT_FAST64_TYPE__
+#define __INT_FAST64_TYPE__ __INT64_TYPE__
+#endif
+
 typedef __INT_LEAST8_TYPE__ int_least8_t;
 typedef __INT_LEAST16_TYPE__ int_least16_t;
 typedef __INT_LEAST32_TYPE__ int_least32_t;
@@ -66,6 +144,13 @@ typedef __UINTPTR_TYPE__ uintptr_t;
 #endif
 #ifdef __INTPTR_TYPE__
 typedef __INTPTR_TYPE__ intptr_t;
+#endif
+
+#ifndef __UINTMAX_TYPE__
+#define __UINTMAX_TYPE__ __UINT64_TYPE__
+#endif
+#ifndef __INTMAX_TYPE__
+#define __INTMAX_TYPE__ __INT64_TYPE__
 #endif
 
 typedef __UINTMAX_TYPE__ uintmax_t;

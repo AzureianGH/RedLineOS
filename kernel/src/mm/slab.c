@@ -158,8 +158,8 @@ bool slab_owns(void *ptr) {
     spin_lock(&slab_lock);
     for (size_t k = 0; k < cache_count(); k++) {
         slab_cache_t *c = &caches[k];
-        for (slab_header_t *sl = c->partial; sl; sl = sl->next) if (in_slab(sl, ptr)) return true;
-        for (slab_header_t *sl = c->full; sl; sl = sl->next) if (in_slab(sl, ptr)) return true;
+        for (slab_header_t *sl = c->partial; sl; sl = sl->next) if (in_slab(sl, ptr)) { spin_unlock(&slab_lock); return true; }
+        for (slab_header_t *sl = c->full; sl; sl = sl->next) if (in_slab(sl, ptr)) { spin_unlock(&slab_lock); return true; }
     }
     spin_unlock(&slab_lock);
     return false;

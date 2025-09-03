@@ -13,6 +13,9 @@
         "lprintf.h": "c",
         "stdint.h": "c",
         "cstddef": "c",
-        "stdatomic.h": "c"
+        "stdatomic.h": "c",
+        "libiop.h": "c",
+        "stdbool.h": "c",
+        "lapic.h": "c"
     }
 }

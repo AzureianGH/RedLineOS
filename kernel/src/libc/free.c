@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stelloc.h>
 #include <slab.h>
+#include <stdio.h>
 
 void free(void *ptr)
 {

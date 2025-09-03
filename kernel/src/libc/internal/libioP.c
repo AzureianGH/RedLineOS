@@ -2,11 +2,23 @@
 #include <displaystandard.h>
 #include <lock.h>
 #include <stdio.h>
+#include <lprintf.h>
 
 // __write for stdout
 static _IO_ssize_t stdout_write(_IO_FILE *file, const void *buf, _IO_ssize_t len) {
     (void)file; // Unused parameter
     const char *cbuf = (const char *)buf;
+    for (_IO_ssize_t i = 0; i < len; i++) {
+        // Output each character using the displaystandard_putc function.
+        displaystandard_putc(cbuf[i]);
+    }
+    return len; // Return number of bytes written.
+}
+
+static _IO_ssize_t stderr_write(_IO_FILE *file, const void *buf, _IO_ssize_t len) {
+    (void)file; // Unused parameter
+    const char *cbuf = (const char *)buf;
+    error_printf("");
     for (_IO_ssize_t i = 0; i < len; i++) {
         // Output each character using the displaystandard_putc function.
         displaystandard_putc(cbuf[i]);
@@ -26,7 +38,13 @@ struct _IO_jump_t _IO_stdout = {
     .__finish = dummy_finish
 };
 
+struct _IO_jump_t _IO_stderr = {
+    .__write = stderr_write,
+    .__finish = dummy_finish
+};
+
 static _IO_lock_t stdout_lock;
+static _IO_lock_t stderr_lock;
 
 struct _IO_FILE_plus _IO_2_1_stdout_ = {
     .file = {
@@ -36,6 +54,16 @@ struct _IO_FILE_plus _IO_2_1_stdout_ = {
         ._vtable_offset = 0,
     },
     .vtable = &_IO_stdout
+};
+
+struct _IO_FILE_plus _IO_2_1_stderr_ = {
+    .file = {
+        ._flags = 0x00000001, // _IO_NO_WRITES
+        ._fileno = 2, // File descriptor for stderr
+        ._lock = &stderr_lock,
+        ._vtable_offset = 0,
+    },
+    .vtable = &_IO_stderr
 };
 
 void flockfile(FILE *stream) {

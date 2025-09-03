@@ -99,7 +99,19 @@ extern void kmain(void) {
 
     info_printf("Initializing stelloc heap allocator...\n");
     stelloc_init_heap();
+
+    byte* stelloc_test = (byte*)malloc(1);
+    // Dereference ptr
+    *stelloc_test = 0xAF;
+    if (*stelloc_test != 0xAF) {
+        error_printf("Stelloc heap allocator self-test failed!\n");
+        hcf();
+    }
+    free(stelloc_test);
+
     success_printf("Stelloc heap allocator initialized.\n");
     success_printf("Kernel initialization complete.\n");
+    fprintf(stderr, "This is a test message to stderr!\n");
+    
     hcf();
 }

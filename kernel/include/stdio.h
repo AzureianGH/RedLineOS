@@ -10,6 +10,7 @@
 typedef struct _IO_FILE FILE;
 
 extern struct _IO_FILE *stdout;
+extern struct _IO_FILE *stderr;
 
 int printf(const char *str, ...);
 

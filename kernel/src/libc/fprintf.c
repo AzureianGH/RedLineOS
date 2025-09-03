@@ -15,18 +15,11 @@ int fprintf(FILE *stream, const char *format, ...) {
         return -1;
     }
 
-    if (stream == stdout)
-    {
-        va_list args;
-        va_start(args, format);
-        int num_chars = vfprintf(stream, format, args);
-        va_end(args);
-        return num_chars;
-    }
-    else
-    {
-        // Unsupported stream
-        return -1;
-    }
+    va_list args;
+    va_start(args, format);
+    int num_chars = vfprintf(stream, format, args);
+    va_end(args);
+    return num_chars;
+
     return 0;
 }

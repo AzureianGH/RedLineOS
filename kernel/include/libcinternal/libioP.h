@@ -237,5 +237,6 @@ struct _IO_jump_t
 };
 
 extern struct _IO_FILE_plus _IO_2_1_stdout_;
+extern struct _IO_FILE_plus _IO_2_1_stderr_;
 
 #endif /* LIBIOP_H */
