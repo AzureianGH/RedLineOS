@@ -16,6 +16,7 @@
         "stdatomic.h": "c",
         "libiop.h": "c",
         "stdbool.h": "c",
-        "lapic.h": "c"
+        "lapic.h": "c",
+        "lock.h": "c"
     }
 }

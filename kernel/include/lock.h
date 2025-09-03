@@ -2,6 +2,21 @@
 
 #include <stdint.h>
 
+// Prob not used, make vscode intellisense happy
+
+#ifndef __ATOMIC_RELAXED
+#define __ATOMIC_RELAXED 0
+#endif
+#ifndef __ATOMIC_CONSUME
+#define __ATOMIC_CONSUME 1
+#endif
+#ifndef __ATOMIC_ACQUIRE
+#define __ATOMIC_ACQUIRE 2
+#endif
+#ifndef __ATOMIC_RELEASE
+#define __ATOMIC_RELEASE 3
+#endif
+
 typedef struct {
     volatile uint32_t v;
 } spinlock_t;

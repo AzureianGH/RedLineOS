@@ -12,6 +12,9 @@ typedef struct _IO_FILE FILE;
 extern struct _IO_FILE *stdout;
 extern struct _IO_FILE *stderr;
 
+#define stdout stdout
+#define stderr stderr
+
 int printf(const char *str, ...);
 
 int fprintf(FILE *stream, const char *format, ...);

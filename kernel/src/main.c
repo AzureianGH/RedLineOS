@@ -111,6 +111,8 @@ extern void kmain(void) {
 
     success_printf("Stelloc heap allocator initialized.\n");
     success_printf("Kernel initialization complete.\n");
+
+    fprintf(stdout, "This is a test message to stdout!\n");
     fprintf(stderr, "This is a test message to stderr!\n");
     
     hcf();
