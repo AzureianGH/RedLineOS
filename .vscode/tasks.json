@@ -1,0 +1,17 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build and run RedLineOS with serial",
+			"type": "shell",
+			"command": "make clean ; make all ; make run",
+			"args": [],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gcc",
+				"$eslint-stylish"
+			],
+			"group": "build"
+		}
+	]
+}

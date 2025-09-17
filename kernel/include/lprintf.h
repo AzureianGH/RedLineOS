@@ -2,6 +2,7 @@
 #define LPRINTF_H
 
 #include <stdarg.h>
+#include <stdbool.h>
 
 int info_printf(const char *str, ...);
 int error_printf(const char *str, ...);

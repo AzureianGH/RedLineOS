@@ -38,6 +38,15 @@ volatile struct limine_rsdp_request rsdp_request = {
     .response = NULL
 };
 
+// SMP/MP request for bringing up application processors (APs).
+__attribute__((used, section(".limine_requests")))
+volatile struct LIMINE_MP(request) mp_request = {
+    LIMINE_MP_REQUEST,
+    .revision = 0,
+    .response = NULL,
+    .flags = 0
+};
+
 // Start/end markers for Limine requests.
 __attribute__((used, section(".limine_requests_start")))
 static volatile LIMINE_REQUESTS_START_MARKER;

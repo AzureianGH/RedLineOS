@@ -71,9 +71,7 @@ override CFLAGS += \
     -march=x86-64 \
     -mabi=sysv \
     -mno-80387 \
-    -mno-mmx \
-    -mno-sse \
-    -mno-sse2 \
+    -msse2 \
     -mno-red-zone \
     -mcmodel=kernel
 

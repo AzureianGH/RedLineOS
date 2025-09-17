@@ -8,11 +8,13 @@
 #include <stdbool.h>
 #include <lprintf.h>
 #include <tsc.h>
+#include <hpet.h>
+#include <sched.h>
 
 extern volatile struct limine_hhdm_request hhdm_request;
 
 static volatile uint32_t* lapic_base;
-static lapic_timer_cb_t timer_cbs[8];
+static lapic_timer_cb_t timer_cbs[256]; // max 256 callbacks (one per vector)
 static bool timer_on;
 
 static inline volatile uint32_t* lapic_reg(uint32_t off) {
@@ -38,7 +40,9 @@ static inline uint32_t lapic_read(uint32_t off) { return *lapic_reg(off); }
 
 static void lapic_timer_isr(isr_frame_t* f) {
     (void)f;
-    for (int i = 0; i < 8; ++i) if (timer_cbs[i]) timer_cbs[i]();
+    for (int i = 0; i < 256; ++i) if (timer_cbs[i]) timer_cbs[i]();
+    // Preemptive scheduling hook
+    sched_on_timer_tick(f);
     lapic_write(LAPIC_REG_EOI, 0);
 }
 
@@ -99,31 +103,52 @@ void lapic_timer_init(uint32_t hz, uint64_t tsc_hz_hint) {
     lapic_write(LAPIC_REG_TIMER_DIV, 0x3);
     debug_printf("LAPIC: timer div=16, target hz=%u\n", (unsigned)hz);
 
-    // Calibrate APIC timer frequency using TSC over ~10ms window
-    uint64_t tsc_hz = tsc_hz_hint;
-    if (!tsc_hz) {
-        tsc_hz = tsc_calibrate_hz(1193182u, 10);
+    // Calibrate APIC timer frequency using HPET if available (stable), else TSC over ~10ms window
+    uint64_t apic_hz = 0;
+    bool used_hpet = false;
+    if (hpet_supported()) {
+        hpet_init(); // ensure main counter is running
+        uint64_t hpet_hz = hpet_counter_hz();
+        if (hpet_hz) {
+            // One-shot with max initial
+            lapic_write(LAPIC_REG_LVT_TIMER, LAPIC_TIMER_VECTOR | LVT_TIMER_MODE_ONE_SHOT);
+            lapic_write(LAPIC_REG_TIMER_INIT, 0xFFFFFFFFu);
+            // Measure APIC elapsed over ~10ms using HPET as time base (sleep)
+            uint64_t interval_ns = 10ULL * 1000ULL * 1000ULL; // 10ms
+            hpet_sleep_ns(interval_ns);
+            uint32_t curr = lapic_read(LAPIC_REG_TIMER_CURR);
+            uint32_t elapsed = 0xFFFFFFFFu - curr;
+            // apic_hz = elapsed ticks / 0.01s
+            apic_hz = (elapsed * 1000000000ULL) / interval_ns;
+            used_hpet = (apic_hz != 0);
+        }
     }
-    // One-shot with max initial
-    lapic_write(LAPIC_REG_LVT_TIMER, LAPIC_TIMER_VECTOR | LVT_TIMER_MODE_ONE_SHOT);
-    lapic_write(LAPIC_REG_TIMER_INIT, 0xFFFFFFFFu);
-    uint64_t t0 = rdtsc();
-    uint64_t wait_cycles = tsc_hz / 100; // ~10ms
-    while (rdtsc() - t0 < wait_cycles) { __asm__ __volatile__("pause"); }
-    uint32_t curr = lapic_read(LAPIC_REG_TIMER_CURR);
-    uint64_t t1 = rdtsc();
-    uint32_t elapsed = 0xFFFFFFFFu - curr;
-    uint64_t tsc_delta = t1 - t0;
-    // apic_ticks_per_sec = elapsed / (tsc_delta / tsc_hz)
-    uint64_t apic_hz = (tsc_delta ? (elapsed * tsc_hz) / tsc_delta : 0);
+    if (!used_hpet) {
+        uint64_t tsc_hz = tsc_hz_hint;
+        if (!tsc_hz) {
+            tsc_hz = tsc_calibrate_hz(1193182u, 10);
+        }
+        // One-shot with max initial
+        lapic_write(LAPIC_REG_LVT_TIMER, LAPIC_TIMER_VECTOR | LVT_TIMER_MODE_ONE_SHOT);
+        lapic_write(LAPIC_REG_TIMER_INIT, 0xFFFFFFFFu);
+        uint64_t t0 = rdtsc();
+        uint64_t wait_cycles = tsc_hz / 100; // ~10ms
+        while (rdtsc() - t0 < wait_cycles) { __asm__ __volatile__("pause"); }
+        uint32_t curr = lapic_read(LAPIC_REG_TIMER_CURR);
+        uint64_t t1 = rdtsc();
+        uint32_t elapsed = 0xFFFFFFFFu - curr;
+        uint64_t tsc_delta = t1 - t0;
+        // apic_ticks_per_sec = elapsed / (tsc_delta / tsc_hz)
+        apic_hz = (tsc_delta ? (elapsed * tsc_hz) / tsc_delta : 0);
+    }
     if (apic_hz == 0) {
         // Fallback guess: common LAPIC clock ~ 100MHz / 16 div
         apic_hz = 100000000ULL / 16ULL;
     }
     uint32_t initial = (uint32_t)(apic_hz / (hz ? hz : 1000u));
     if (initial == 0) initial = 1;
-    debug_printf("LAPIC: calib elapsed=%u ticks, tsc_delta=%llu, apic_hz~%llu, initial=%u vector=%u\n",
-                 (unsigned)elapsed, (unsigned long long)tsc_delta,
+    debug_printf("LAPIC: calib %s apic_hz~%llu, initial=%u vector=%u\n",
+                 used_hpet ? "HPET" : "TSC",
                  (unsigned long long)apic_hz, (unsigned)initial, (unsigned)LAPIC_TIMER_VECTOR);
     // Program periodic mode
     lapic_write(LAPIC_REG_LVT_TIMER, LAPIC_TIMER_VECTOR | LVT_TIMER_MODE_PERIODIC);
@@ -132,7 +157,7 @@ void lapic_timer_init(uint32_t hz, uint64_t tsc_hz_hint) {
 }
 
 int lapic_timer_on_tick(lapic_timer_cb_t cb) {
-    for (int i = 0; i < 8; ++i) if (!timer_cbs[i]) { timer_cbs[i]=cb; return 0; }
+    for (int i = 0; i < 256; ++i) if (!timer_cbs[i]) { timer_cbs[i]=cb; return 0; }
     return -1;
 }
 

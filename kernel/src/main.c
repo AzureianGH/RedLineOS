@@ -25,6 +25,15 @@
 #include <lapic.h>
 #include <ioapic.h>
 #include <hpet.h>
+#include <vmm.h>
+#include <time.h>
+#include <smp.h>
+#include <sched.h>
+#include <unistd.h>
+#include <stdatomic.h>
+
+// Externs for environment
+extern int init_env();
 
 // Halt and catch fire function.
 static void hcf(void) {
@@ -33,10 +42,26 @@ static void hcf(void) {
     }
 }
 
-// Simple LAPIC/PIT timer demo: count ticks and print uptime with milliseconds.
-static volatile unsigned long long demo_ticks = 0;
-static void demo_tick_cb(void) {
-    ++demo_ticks;
+// Example shared atomic time variable and worker threads
+static _Atomic time_t shared_time;
+
+static void process_a(void* arg) {
+    (void)arg;
+    for (;;) {
+        time_t now = time(NULL);
+        atomic_store(&shared_time, now);
+        sched_yield();
+    }
+}
+
+static void process_b(void* arg) {
+    (void)arg;
+    for (;;) {
+        time_t rt = atomic_load(&shared_time);
+        struct tm local = *localtime(&rt);
+        printf("Local time: %s", asctime(&local));
+        sleep(5);
+    }
 }
 
 extern void kmain(void) {
@@ -65,38 +90,6 @@ extern void kmain(void) {
     palloc_init(memmap_request.response);
     success_printf("Page allocator initialized with %zu pages free.\n", palloc_get_free_page_count());
 
-    vmm_init();
-
-    pic_remap();
-    pic_set_mask(0); // mask PIT
-    pic_set_mask(1); // mask keyboard
-    pic_set_mask(2); // cascade
-    pic_set_mask(8); // mask RTC
-
-    info_printf("Calibrating TSC...\n");
-    uint64_t tsc_hz = tsc_calibrate_hz(1193182u, 10);
-    info_printf("TSC ~ %llu Hz\n", (unsigned long long)tsc_hz);
-
-    info_printf("Initializing ACPI...\n");
-    acpi_init();
-    
-    info_printf("Initializing timers (LAPIC/HPET/PIT fallback)...\n");
-    if (timer_init(1000, tsc_hz)) {
-        switch (timer_source()) {
-            case TIMER_SRC_LAPIC: success_printf("Using LAPIC timer at ~%u Hz\n", 1000u); break;
-            case TIMER_SRC_HPET:  success_printf("Using HPET for timing (no IRQ tick yet)\n"); break;
-            case TIMER_SRC_PIT:   success_printf("Using PIT at 1000 Hz (legacy)\n"); break;
-        }
-    }
-    // After LAPIC timer is active and PIC lines masked, wire HPET IRQ to IOAPIC/LAPIC
-    if (hpet_supported() && ioapic_supported()) {
-        if (hpet_enable_and_route_irq(0, 1000000ULL, 242)) {
-            success_printf("HPET periodic IRQ routed (1kHz, vector 242)\n");
-        } else {
-            info_printf("HPET IRQ routing skipped\n");
-        }
-    }
-
     info_printf("Initializing stelloc heap allocator...\n");
     stelloc_init_heap();
 
@@ -109,11 +102,59 @@ extern void kmain(void) {
     }
     free(stelloc_test);
 
+    info_printf("Remapping PIC...\n");
+    pic_remap();
+    pic_set_mask(0); // mask PIT
+    pic_set_mask(1); // mask keyboard
+    pic_set_mask(2); // cascade
+    pic_set_mask(8); // mask RTC
+    success_printf("PIC remapped and IRQs masked.\n");
+
+    info_printf("Calibrating TSC...\n");
+    uint64_t tsc_hz = tsc_calibrate_hz(1193182u, 10);
+    info_printf("TSC ~ %llu Hz\n", (unsigned long long)tsc_hz);
+
+    info_printf("Initializing ACPI...\n");
+    acpi_init();
+    
+    info_printf("Initializing timers (LAPIC/HPET/PIT fallback)...\n");
+    if (timer_init(1000, tsc_hz)) {
+        switch (timer_source()) {
+            case TIMER_SRC_LAPIC: success_printf("Using LAPIC timer at ~%u Hz\n", 1000u); break;
+            case TIMER_SRC_HPET:  success_printf("Using HPET at ~%u Hz (periodic IRQ)\n", 1000u); break;
+            case TIMER_SRC_PIT:   success_printf("Using PIT at 1000 Hz (legacy)\n"); break;
+        }
+    }
+
+    info_printf("Initializing SMP...\n");
+    smp_init();
+    
+    info_printf("Initializing scheduler...\n");
+    sched_init();
+    ktime_init(1000, tsc_hz);
+
+    info_printf("Initializing Environment...\n");
+    init_env();
+
+    if (setenv("TZ", "EST5EDT,M3.2.0/2,M11.1.0/2", 1) != 0) {
+        error_printf("Failed to set TZ environment variable\n");
+        hcf();
+    }
+
+    time_t t = time(NULL);
+
+    // Initialize shared clock value
+    shared_time = t;
+
     success_printf("Stelloc heap allocator initialized.\n");
     success_printf("Kernel initialization complete.\n");
 
-    fprintf(stdout, "This is a test message to stdout!\n");
-    fprintf(stderr, "This is a test message to stderr!\n");
     
-    hcf();
+    
+    // Create two kernel threads
+    sched_create(process_a, NULL, "procA");
+    sched_create(process_b, NULL, "procB");
+
+    // Enter scheduler on BSP
+    sched_start();
 }

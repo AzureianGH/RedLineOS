@@ -88,7 +88,3 @@ void ioapic_route_irq(uint8_t gsi, uint8_t vector) {
     debug_printf("IOAPIC: route gsi=%u idx=%u vec=%u red=%#016llx\n", (unsigned)gsi, (unsigned)idx, (unsigned)vector, (unsigned long long)red);
     ioapic_write_redir(idx, red);
 }
-
-uint32_t ioapic_gsi_base(void) {
-    return gsi_base;
-}

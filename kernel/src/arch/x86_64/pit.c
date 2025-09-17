@@ -6,11 +6,11 @@
 #define PIT_CH0 0x40
 #define PIT_CMD 0x43
 
-static pit_callback_t cbs[8];
+static pit_callback_t cbs[256];
 
 static void pit_irq(isr_frame_t* f) {
     (void)f;
-    for (int i = 0; i < 8; ++i) if (cbs[i]) cbs[i]();
+    for (int i = 0; i < 256; ++i) if (cbs[i]) cbs[i]();
     pic_send_eoi(32);
 }
 
@@ -26,6 +26,6 @@ void pit_init(uint32_t hz) {
 }
 
 int pit_on_tick(pit_callback_t cb) {
-    for (int i = 0; i < 8; ++i) { if (!cbs[i]) { cbs[i]=cb; return 0; } }
+    for (int i = 0; i < 256; ++i) { if (!cbs[i]) { cbs[i]=cb; return 0; } }
     return -1;
 }

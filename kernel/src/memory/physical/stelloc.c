@@ -8,6 +8,8 @@
 #include <vheap.h>
 #include <lock.h>
 #include <slab.h>
+#include <vmm.h>
+#include <stdint.h>
 
 #define FREE_HEADER_SIZE  (sizeof(ulong) * 2) // size + next
 #define ALLOC_HEADER_SIZE (sizeof(ulong) * 1) // size only
@@ -26,7 +28,6 @@ static inline void *ulong_to_ptr(ulong v) { return (void *)(uintptr_t)v; }
 // Insert a free block in address-sorted order and coalesce with neighbors.
 static void insert_free_sorted(void *addr, ulong size) {
     ulong block = ptr_to_ulong(addr);
-    ulong start = block;
     ulong end = block + size;
 
     // Empty list

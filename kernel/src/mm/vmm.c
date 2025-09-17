@@ -1,6 +1,7 @@
 #include <vmm.h>
 #include <boot.h>
 #include <palloc.h>
+#include <lprintf.h>
 
 static volatile uint64_t *pml4 = 0; // HHDM-mapped pointer to current PML4
 

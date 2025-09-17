@@ -17,6 +17,17 @@
         "libiop.h": "c",
         "stdbool.h": "c",
         "lapic.h": "c",
-        "lock.h": "c"
+        "lock.h": "c",
+        "types.h": "c",
+        "stddef.h": "c",
+        "time.h": "c",
+        "vmm.h": "c",
+        "features.h": "c",
+        "wordsize.h": "c",
+        "cdefs.h": "c",
+        "timer.h": "c",
+        "hpet.h": "c",
+        "xlocale.h": "c",
+        "extendedint.h": "c"
     }
 }

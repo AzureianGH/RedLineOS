@@ -129,6 +129,8 @@ typedef __INT64_TYPE__ int64_t;
 #define __INT_FAST64_TYPE__ __INT64_TYPE__
 #endif
 
+//__WCHAR_TYPE__
+
 typedef __INT_LEAST8_TYPE__ int_least8_t;
 typedef __INT_LEAST16_TYPE__ int_least16_t;
 typedef __INT_LEAST32_TYPE__ int_least32_t;

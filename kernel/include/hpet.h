@@ -12,3 +12,7 @@ bool hpet_enable_and_route_irq(uint8_t comparator, uint64_t ns_interval, uint8_t
 // Debug: number of HPET IRQs handled.
 uint64_t hpet_get_irq_count(void);
 bool hpet_route_irq_via_ioapic(uint8_t pin, uint8_t vector);
+
+//ontick
+typedef void (*hpet_irq_cb_t)(void);
+int hpet_on_tick(hpet_irq_cb_t cb);

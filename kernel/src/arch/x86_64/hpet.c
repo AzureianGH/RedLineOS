@@ -16,6 +16,8 @@ static uint64_t period_fs;
 static uint8_t hpet_irq_vector = 242;
 static uint8_t hpet_irq_timer_index = 0;
 static uint64_t hpet_irq_count = 0;
+static hpet_irq_cb_t hpet_cbs[256];
+static bool hpet_irq_routed = false;
 
 static inline uint64_t mmio_read64(volatile uint64_t* p) { return *p; }
 static inline void mmio_write64(volatile uint64_t* p, uint64_t v) { *p = v; (void)*p; }
@@ -109,12 +111,15 @@ static void hpet_isr(isr_frame_t* f) {
     (void)f;
     // Acknowledge by writing to General Interrupt Status for our timer bit
     mmio_write64(hpet_regs + (0x20/8), (1ull << hpet_irq_timer_index));
+    // Invoke registered callbacks
+    for (int i = 0; i < 256; ++i) if (hpet_cbs[i]) hpet_cbs[i]();
     ++hpet_irq_count;
     lapic_eoi();
 }
 
 // Wire HPET comparator 0 through IOAPIC to LAPIC vector
 bool hpet_route_irq_via_ioapic(uint8_t gsi, uint8_t vector) {
+    if (hpet_irq_routed) return true;
     if (!ioapic_supported()) return false;
     // Program HPET comparator route field to selected GSI (common implementations support 0..31)
     volatile uint64_t* tn_cfg = hpet_regs + (0x100/8) + hpet_irq_timer_index*0x20/8;
@@ -131,7 +136,15 @@ bool hpet_route_irq_via_ioapic(uint8_t gsi, uint8_t vector) {
     return true;
 }
 
+int hpet_on_tick(hpet_irq_cb_t cb) {
+    for (int i = 0; i < 256; ++i) {
+        if (!hpet_cbs[i]) { hpet_cbs[i] = cb; return 0; }
+    }
+    return -1;
+}
+
 bool hpet_enable_and_route_irq(uint8_t comparator, uint64_t ns_interval, uint8_t vector) {
+    if (hpet_irq_routed) return true;
     // Program HPET periodic comparator and enable INT
     hpet_enable_periodic_irq(comparator, ns_interval, vector);
     // Choose a valid GSI from Timer N route capability mask (bits 32..63)
@@ -158,6 +171,7 @@ bool hpet_enable_and_route_irq(uint8_t comparator, uint64_t ns_interval, uint8_t
                 mmio_write64(tn_cfg2, cfg2);
                 // Clear pending one more time to avoid spurious
                 mmio_write64(hpet_regs + (0x20/8), (1ull << comparator));
+                hpet_irq_routed = true;
                 debug_printf("HPET: enable+route pin %u -> GSI %u OK (cap=%#08x base=%u)\n", pin, abs_gsi, route_cap, gsi_base);
                 return true;
             }
@@ -176,6 +190,7 @@ bool hpet_enable_and_route_irq(uint8_t comparator, uint64_t ns_interval, uint8_t
                 mmio_write64(tn_cfg2, cfg2);
                 // Clear pending one more time to avoid spurious
                 mmio_write64(hpet_regs + (0x20/8), (1ull << comparator));
+                hpet_irq_routed = true;
                 debug_printf("HPET: enable+route pin %u -> GSI %u OK (cap=%#08x base=%u)\n", pin, abs_gsi, route_cap, gsi_base);
                 return true;
             }
