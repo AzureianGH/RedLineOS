@@ -202,16 +202,17 @@ void tzset(void) {
 }
 
 static void epoch_to_tm_utc(time_t t, struct tm* out) {
-    int year = 1970;
     static const int days_in_month[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
     int64_t sec = (int64_t)t;
     int y = 1970;
-    int days = 0;
     while (1) {
         int leap = (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0));
         int diy = 365 + leap;
-        if (sec < (int64_t)diy * 86400) break;
-        sec -= (int64_t)diy * 86400; y++;
+        if (sec < (int64_t)diy * 86400) {
+            break;
+        }
+        sec -= (int64_t)diy * 86400;
+        y++;
     }
     out->tm_year = y - 1900;
     out->tm_yday = (int)(sec / 86400);
@@ -222,7 +223,11 @@ static void epoch_to_tm_utc(time_t t, struct tm* out) {
     int yday = out->tm_yday;
     while (month < 12) {
         int dim = days_in_month[month] + (month==1 && (yy % 4 == 0 && (yy % 100 != 0 || yy % 400 == 0)));
-        if (yday < dim) break; yday -= dim; month++;
+        if (yday < dim) {
+            break;
+        }
+        yday -= dim;
+        month++;
     }
     out->tm_mon = month; out->tm_mday = yday + 1;
     out->tm_wday = (4 + (t / 86400)) % 7; // 1970-01-01 was Thursday

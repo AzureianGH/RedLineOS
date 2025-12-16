@@ -1,25 +1,34 @@
-// POSIX-like sleep functions backed by kernel scheduler
+// POSIX-like sleep functions backed by timer ticks; busy-wait until scheduler exists.
 #include <unistd.h>
-#include <sched.h>
 #include <time.h>
+#include <timer.h>
+
+static int nanosleep_impl(const struct timespec* req, struct timespec* rem) {
+	if (!req || req->tv_sec < 0 || req->tv_nsec < 0 || req->tv_nsec >= 1000000000L) return -1;
+	uint64_t hz = timer_hz();
+	if (!hz) hz = 1000; // fallback assumption
+	uint64_t start = (uint64_t)timer_get_ticks();
+	uint64_t target_ns = (uint64_t)req->tv_sec * 1000000000ULL + (uint64_t)req->tv_nsec;
+	uint64_t target_ticks = target_ns / (1000000000ULL / hz);
+	if (target_ticks == 0 && target_ns > 0) target_ticks = 1;
+	while (((uint64_t)timer_get_ticks() - start) < target_ticks) {
+		__asm__ __volatile__("pause");
+	}
+	if (rem) { rem->tv_sec = 0; rem->tv_nsec = 0; }
+	return 0;
+}
 
 unsigned int sleep(unsigned int seconds) {
-	sched_sleep_ms((uint64_t)seconds * 1000ULL);
+	struct timespec ts = { (time_t)seconds, 0 };
+	nanosleep_impl(&ts, NULL);
 	return 0;
 }
 
 int usleep(unsigned int usec) {
-	uint64_t ms = (uint64_t)(usec / 1000u);
-	if (ms == 0 && usec) ms = 1; // minimum 1ms
-	sched_sleep_ms(ms);
-	return 0;
+	struct timespec ts = { (time_t)(usec / 1000000U), (long)((usec % 1000000U) * 1000L) };
+	return nanosleep_impl(&ts, NULL);
 }
 
 int nanosleep(const struct timespec* req, struct timespec* rem) {
-	if (!req) return -1;
-	uint64_t ms = (uint64_t)req->tv_sec * 1000ULL + (uint64_t)(req->tv_nsec / 1000000ULL);
-	if (ms == 0 && (req->tv_sec || req->tv_nsec)) ms = 1;
-	sched_sleep_ms(ms);
-	if (rem) { rem->tv_sec = 0; rem->tv_nsec = 0; }
-	return 0;
+	return nanosleep_impl(req, rem);
 }

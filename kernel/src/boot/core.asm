@@ -1,7 +1,12 @@
 bits 64
+default rel
 section .text
 
 extern kmain
+; Local trampoline to avoid cross-object relocation warnings
+kmain_trampoline:
+    mov rax, kmain
+    jmp rax
 global _start
 
 ;; Check if SSE is supported by querying CPUID
@@ -45,4 +50,4 @@ _start:
     call check_sse_support
     call enable_sse
     call enable_cpu_caching
-    call kmain
+    call kmain_trampoline

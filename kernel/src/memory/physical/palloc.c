@@ -48,13 +48,6 @@ static inline void *phys_to_virt(uint64_t phys) {
     return (void *)(phys + hhdm_request.response->offset);
 }
 
-static void push_free_page(uint64_t phys_addr) {
-    void **page_virt = (void **)phys_to_virt(align_down_u64(phys_addr, PAGE_SIZE));
-    // Store current head as next
-    *page_virt = free_list_head;
-    free_list_head = (void *)page_virt;
-}
-
 void palloc_init(struct limine_memmap_response* memmap) {
     spinlock_init(&palloc_lock);
     free_list_head = NULL;

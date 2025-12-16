@@ -41,7 +41,6 @@ extern void irq_stub_44(void); extern void irq_stub_45(void); extern void irq_st
 extern void isr_stub_240(void);
 extern void isr_stub_242(void);
 extern void isr_stub_255(void);
-extern void isr_stub_240(void); extern void isr_stub_255(void);
 
 static void set_idt_gate(int vec, void* handler, uint8_t type_attr, uint8_t ist) {
     uint64_t addr = (uint64_t)handler;
@@ -115,14 +114,11 @@ void idt_init(void) {
     set_idt_gate(242, isr_stub_242, gate, 0);
     set_idt_gate(255, isr_stub_255, gate, 0);
 
-    // LAPIC timer and spurious
-    set_idt_gate(240, isr_stub_240, gate, 0);
-    set_idt_gate(255, isr_stub_255, gate, 0);
-
     idtr.base = (uint64_t)&idt[0];
     idtr.limit = sizeof(idt) - 1;
     idt_load(&idtr);
+}
 
-    // Enable interrupts
+void idt_enable_interrupts(void) {
     asm volatile("sti");
 }

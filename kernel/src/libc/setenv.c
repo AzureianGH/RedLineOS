@@ -17,7 +17,8 @@ int init_env()
 int setenv(const char *__name, const char *__value, int __replace)
 {
     // Validate input
-    if (!__name || !*__name || strchr(__name, '=') || !__value) {
+        // __name/__value are declared nonnull; only validate content
+        if (!*__name || strchr(__name, '=')) {
         return -1; // Invalid arguments
     }
 
@@ -70,7 +71,7 @@ int setenv(const char *__name, const char *__value, int __replace)
 
 char *getenv(const char *name)
 {
-    if (!name || !*name) return NULL;
+    if (!*name) return NULL;
     size_t nlen = strlen(name);
     if (!environ) return NULL;
     for (char **env = environ; *env; ++env) {
@@ -83,7 +84,7 @@ char *getenv(const char *name)
 
 int unsetenv(const char *name)
 {
-    if (!name || !*name) return -1;
+    if (!*name) return -1;
     size_t nlen = strlen(name);
     if (!environ) return 0;
 
@@ -107,7 +108,7 @@ int unsetenv(const char *name)
 
 int putenv(char *__string)
 {
-    if (!__string || !*__string) return -1;
+    if (!*__string) return -1;
     char *eq = strchr(__string, '=');
     if (!eq) return -1; // Invalid format
     size_t name_len = eq - __string;

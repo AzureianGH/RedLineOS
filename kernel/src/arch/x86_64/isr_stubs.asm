@@ -1,7 +1,13 @@
 bits 64
+default rel
 section .text
 
 extern isr_common_handler
+
+; Local trampoline to avoid cross-object relocation warnings
+isr_common_trampoline:
+    mov rax, isr_common_handler
+    jmp rax
 
 %macro PUSH_ALL 0
     push rax
@@ -47,7 +53,7 @@ isr_stub_%1:
     PUSH_ALL
     mov rdi, rsp              ; arg: frame*
     sub rsp, 8                ; align stack to 16B before call
-    call isr_common_handler
+    call isr_common_trampoline
     add rsp, 8
     POP_ALL
     add rsp, 16               ; pop int_no, err_code
@@ -61,7 +67,7 @@ isr_stub_%1:
     PUSH_ALL
     mov rdi, rsp
     sub rsp, 8
-    call isr_common_handler
+    call isr_common_trampoline
     add rsp, 8
     POP_ALL
     add rsp, 8                ; pop int_no (err_code left by CPU)
@@ -110,7 +116,7 @@ irq_stub_%1:
     PUSH_ALL
     mov rdi, rsp
     sub rsp, 8
-    call isr_common_handler
+    call isr_common_trampoline
     add rsp, 8
     POP_ALL
     add rsp, 16

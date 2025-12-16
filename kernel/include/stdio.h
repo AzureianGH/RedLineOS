@@ -27,6 +27,8 @@ int snprintf(char * restrict buffer, size_t bufsz, char const * restrict format,
 
 int sscanf(const char* str, const char* format, ...);
 
+int vsscanf(const char* str, const char* fmt, va_list ap);
+
 // Simple FILE locking API (freestanding subset)
 void flockfile(FILE *stream);
 void funlockfile(FILE *stream);
