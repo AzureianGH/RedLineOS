@@ -10,8 +10,9 @@
 #define GDT_SELECTOR_USER_CS   (0x20 | 0x3)
 #define GDT_SELECTOR_TSS       0x28
 
-// Initialize a 64-bit GDT with kernel/user code/data and a 64-bit TSS.
-void gdt_init(void);
+// Initialize and load a 64-bit GDT/TSS for the given CPU index.
+// cpu_index should be a small, unique 0-based index per CPU (e.g., BSP=0, APs as enumerated).
+void gdt_init(uint32_t cpu_index);
 
 // Optionally update the TSS RSP0 to a new kernel stack top.
 void gdt_set_kernel_rsp0(uint64_t rsp0);

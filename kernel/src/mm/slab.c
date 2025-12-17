@@ -3,6 +3,7 @@
 #include <vmm.h>
 #include <palloc.h>
 #include <lock.h>
+#include <alloc_debug.h>
 
 #define PAGE_SIZE 4096ULL
 #define SLAB_MIN_ALIGN 8U
@@ -20,6 +21,19 @@ typedef struct slab_cache {
     slab_header_t *full;
     uint16_t obj_size;
 } slab_cache_t;
+
+#if ALLOC_DEBUG
+typedef struct slab_dbg {
+    uint32_t magic;
+    uint32_t requested;
+} slab_dbg_t;
+
+static inline size_t slab_overhead(void) {
+    return sizeof(slab_dbg_t) + (ALLOC_REDZONE_SIZE * 2);
+}
+#else
+static inline size_t slab_overhead(void) { return 0; }
+#endif
 
 static slab_cache_t caches[] = {
     { .obj_size = 8 }, { .obj_size = 16 }, { .obj_size = 32 }, { .obj_size = 64 },
@@ -83,8 +97,10 @@ static inline bool in_slab(slab_header_t *sl, void *ptr) {
 }
 
 void *slab_alloc(size_t size) {
+    size_t requested = size;
     size = align_up_sz(size, SLAB_MIN_ALIGN);
-    slab_cache_t *c = pick_cache(size);
+    size_t need = size + slab_overhead();
+    slab_cache_t *c = pick_cache(need);
     if (!c) return NULL;
     spin_lock(&slab_lock);
     slab_header_t *sl = c->partial;
@@ -113,6 +129,19 @@ void *slab_alloc(size_t size) {
         c->full = sl;
     }
     void *ret = (void *)obj;
+#if ALLOC_DEBUG
+    slab_dbg_t *dbg = (slab_dbg_t *)obj;
+    dbg->magic = ALLOC_DBG_MAGIC;
+    dbg->requested = (uint32_t)requested;
+    uint8_t *front = (uint8_t *)obj + sizeof(slab_dbg_t);
+    uint8_t *payload = front + ALLOC_REDZONE_SIZE;
+    uint8_t *back = (uint8_t *)obj + c->obj_size - ALLOC_REDZONE_SIZE;
+    alloc_dbg_fill(front, ALLOC_REDZONE_SIZE, ALLOC_REDZONE_BYTE);
+    alloc_dbg_fill(back, ALLOC_REDZONE_SIZE, ALLOC_REDZONE_BYTE);
+    size_t payload_len = c->obj_size - sizeof(slab_dbg_t) - (2 * ALLOC_REDZONE_SIZE);
+    alloc_dbg_fill(payload, payload_len, ALLOC_POISON_ALLOC);
+    ret = payload;
+#endif
     spin_unlock(&slab_lock);
     return ret;
 }
@@ -127,15 +156,38 @@ void slab_free(void *ptr) {
         for (int li = 0; li < 2; li++) {
             slab_header_t *prev = NULL;
             for (slab_header_t *sl = *lists[li]; sl != NULL; prev = sl, sl = sl->next) {
-                if (!in_slab(sl, ptr)) continue;
+                uint8_t *obj_start = (uint8_t *)ptr;
+#if ALLOC_DEBUG
+                obj_start -= (sizeof(slab_dbg_t) + ALLOC_REDZONE_SIZE);
+#endif
+                if (!in_slab(sl, obj_start)) continue;
                 // Compute index and push back to free list
                 size_t hdr_align = sl->obj_size < 16 ? 16 : sl->obj_size;
                 uint64_t hdr_sz = align_up(sizeof(slab_header_t), hdr_align);
                 uint8_t *base = (uint8_t *)sl + hdr_sz;
-                size_t offset = (uint8_t *)ptr - base;
+                size_t offset = (uint8_t *)obj_start - base;
                 if (offset % c->obj_size != 0) { spin_unlock(&slab_lock); return; } // invalid ptr
                 uint16_t idx = (uint16_t)(offset / c->obj_size);
-                *(uint16_t *)ptr = sl->first_free_index;
+
+#if ALLOC_DEBUG
+                slab_dbg_t *dbg = (slab_dbg_t *)obj_start;
+                if (dbg->magic != ALLOC_DBG_MAGIC) {
+                    alloc_debug_fail("slab free: magic corrupt", ptr);
+                }
+                uint8_t *front = obj_start + sizeof(slab_dbg_t);
+                uint8_t *payload = front + ALLOC_REDZONE_SIZE;
+                uint8_t *back = obj_start + sl->obj_size - ALLOC_REDZONE_SIZE;
+                if (!alloc_dbg_check(front, ALLOC_REDZONE_SIZE, ALLOC_REDZONE_BYTE)) {
+                    alloc_debug_fail("slab free: front redzone corrupt", ptr);
+                }
+                if (!alloc_dbg_check(back, ALLOC_REDZONE_SIZE, ALLOC_REDZONE_BYTE)) {
+                    alloc_debug_fail("slab free: back redzone corrupt", ptr);
+                }
+                size_t payload_len = sl->obj_size - sizeof(slab_dbg_t) - (2 * ALLOC_REDZONE_SIZE);
+                alloc_dbg_fill(payload, payload_len, ALLOC_POISON_FREE);
+#endif
+
+                *(uint16_t *)obj_start = sl->first_free_index;
                 sl->first_free_index = idx;
                 sl->free_count++;
 
@@ -176,5 +228,11 @@ size_t slab_usable_size(void *ptr) {
     }
 out:
     spin_unlock(&slab_lock);
+    if (result == 0) return 0;
+#if ALLOC_DEBUG
+    size_t overhead = slab_overhead();
+    if (result <= overhead) return 0;
+    result -= overhead;
+#endif
     return result;
 }

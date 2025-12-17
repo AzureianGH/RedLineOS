@@ -2,6 +2,7 @@
 #include <io.h>
 #include <isr.h>
 #include <pic.h>
+#include <sched.h>
 
 #define PIT_CH0 0x40
 #define PIT_CMD 0x43
@@ -9,8 +10,8 @@
 static pit_callback_t cbs[256];
 
 static void pit_irq(isr_frame_t* f) {
-    (void)f;
     for (int i = 0; i < 256; ++i) if (cbs[i]) cbs[i]();
+    scheduler_tick(f);
     pic_send_eoi(32);
 }
 

@@ -9,6 +9,7 @@
 #include <lprintf.h>
 #include <tsc.h>
 #include <hpet.h>
+#include <sched.h>
 
 extern volatile struct limine_hhdm_request hhdm_request;
 
@@ -38,8 +39,8 @@ static inline uint32_t lapic_read(uint32_t off) { return *lapic_reg(off); }
 #define LVT_TIMER_MODE_PERIODIC 0x20000
 
 static void lapic_timer_isr(isr_frame_t* f) {
-    (void)f;
     for (int i = 0; i < 256; ++i) if (timer_cbs[i]) timer_cbs[i]();
+    scheduler_tick(f);
     lapic_write(LAPIC_REG_EOI, 0);
 }
 

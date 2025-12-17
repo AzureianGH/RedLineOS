@@ -47,6 +47,14 @@ volatile struct LIMINE_MP(request) mp_request = {
     .flags = 0
 };
 
+// Executable address request (needed for KASLR slide).
+__attribute__((used, section(".limine_requests")))
+volatile struct limine_executable_address_request executable_address_request = {
+    .id = LIMINE_EXECUTABLE_ADDRESS_REQUEST,
+    .revision = 0,
+    .response = NULL
+};
+
 // Start/end markers for Limine requests.
 __attribute__((used, section(".limine_requests_start")))
 static volatile LIMINE_REQUESTS_START_MARKER;

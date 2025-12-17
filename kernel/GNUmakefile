@@ -27,6 +27,9 @@ endif
 # User controllable linker command.
 LD := $(TOOLCHAIN_PREFIX)ld
 
+# Symbol dumper for ksym generation.
+NM := $(TOOLCHAIN_PREFIX)nm
+
 # Defaults overrides for variables if using "llvm" as toolchain.
 ifeq ($(TOOLCHAIN),llvm)
     CC := clang
@@ -102,12 +105,19 @@ override LDFLAGS += \
 
 # Use "find" to glob all *.c, *.S, and *.asm files in the tree and obtain the
 # object and header dependency file names.
-override SRCFILES := $(shell find -L src cc-runtime/src -type f 2>/dev/null | LC_ALL=C sort)
+override SRCFILES := $(filter-out src/generated/ksyms.c,$(shell find -L src cc-runtime/src -type f 2>/dev/null | LC_ALL=C sort))
 override CFILES := $(filter %.c,$(SRCFILES))
 override ASFILES := $(filter %.S,$(SRCFILES))
 override NASMFILES := $(filter %.asm,$(SRCFILES))
 override OBJ := $(addprefix obj/,$(CFILES:.c=.c.o) $(ASFILES:.S=.S.o) $(NASMFILES:.asm=.asm.o))
 override HEADER_DEPS := $(addprefix obj/,$(CFILES:.c=.c.d) $(ASFILES:.S=.S.d))
+
+# Generated symbol table source and its object. Always include it in the final link
+# to provide addresses for all functions (global and static).
+GENERATED_KSYMS := src/generated/ksyms.c
+OBJ_KSYMS := obj/src/generated/ksyms.c.o
+override OBJ += $(OBJ_KSYMS)
+OBJ_NO_KSYMS := $(filter-out $(OBJ_KSYMS),$(OBJ))
 
 # Default target. This must come first, before header dependencies.
 .PHONY: all
@@ -116,8 +126,21 @@ all: bin/$(OUTPUT)
 # Include header dependencies.
 -include $(HEADER_DEPS)
 
-# Link rules for the final executable.
-bin/$(OUTPUT): GNUmakefile linker-scripts/x86_64.lds $(OBJ)
+# First link pass: build a kernel without the generated symbol table so we can
+# extract every function symbol (including static ones).
+bin/$(OUTPUT).stage1: GNUmakefile linker-scripts/x86_64.lds $(OBJ_NO_KSYMS)
+	mkdir -p "$(dir $@)"
+	$(LD) $(LDFLAGS) $(OBJ_NO_KSYMS) -o $@
+
+# Generate the symbol table source from the stage1 kernel.
+$(GENERATED_KSYMS): bin/$(OUTPUT).stage1
+	@mkdir -p "$(dir $@)"
+	@printf "/* Auto-generated; do not edit. */\n#include <symbols.h>\n#include <stddef.h>\n\nextern const struct ksym ksym_table[];\nextern const size_t ksym_count;\n\nconst struct ksym ksym_table[] = {\n" > $@
+	@$(NM) -n -a $< | awk '($$2 ~ /^[tT]$$/) && ($$3 !~ /^\./) && ($$3 != "") { printf("    { 0x%s, \"%s\" },\n", $$1, $$3); }' >> $@
+	@printf "};\n\nconst size_t ksym_count = sizeof(ksym_table) / sizeof(ksym_table[0]);\n" >> $@
+
+# Link rules for the final executable using the generated symbol table.
+bin/$(OUTPUT): GNUmakefile linker-scripts/x86_64.lds $(OBJ) $(GENERATED_KSYMS)
 	mkdir -p "$(dir $@)"
 	$(LD) $(LDFLAGS) $(OBJ) -o $@
 
@@ -139,7 +162,7 @@ obj/%.asm.o: %.asm GNUmakefile
 # Remove object files and the final executable.
 .PHONY: clean
 clean:
-	rm -rf bin obj
+	rm -rf bin obj $(GENERATED_KSYMS)
 
 # Install the final built executable to its final on-root location.
 .PHONY: install

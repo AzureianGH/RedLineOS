@@ -8,6 +8,7 @@
 #include <isr.h>
 #include <ioapic.h>
 #include <lapic.h>
+#include <sched.h>
 
 extern volatile struct limine_hhdm_request hhdm_request;
 
@@ -63,6 +64,15 @@ uint64_t hpet_counter_hz(void) {
     return (uint64_t)(1000000000000000ULL / period_fs);
 }
 
+uint64_t hpet_period_fs(void) {
+    return period_fs;
+}
+
+uint64_t hpet_counter(void) {
+    if (!hpet_regs) return 0;
+    return mmio_read64(hpet_regs + 0x1E);
+}
+
 void hpet_sleep_ns(uint64_t ns) {
     if (!hpet_regs || period_fs == 0) return;
     uint64_t start = mmio_read64(hpet_regs + 0x1E);
@@ -108,12 +118,12 @@ void hpet_enable_periodic_irq(uint8_t comparator, uint64_t ns_interval, uint8_t 
 }
 
 static void hpet_isr(isr_frame_t* f) {
-    (void)f;
     // Acknowledge by writing to General Interrupt Status for our timer bit
     mmio_write64(hpet_regs + (0x20/8), (1ull << hpet_irq_timer_index));
     // Invoke registered callbacks
     for (int i = 0; i < 256; ++i) if (hpet_cbs[i]) hpet_cbs[i]();
     ++hpet_irq_count;
+    scheduler_tick(f);
     lapic_eoi();
 }
 

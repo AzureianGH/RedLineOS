@@ -41,6 +41,10 @@
 #define __UINT64_TYPE__ unsigned long long int
 #endif
 
+#ifndef __UINTPTR_TYPE__
+#define __UINTPTR_TYPE__ unsigned long long
+#endif
+
 #ifdef __UINT8_TYPE__
 typedef __UINT8_TYPE__ uint8_t;
 #endif

@@ -6,9 +6,11 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <limine.h>
 #include <stdio.h>
 #include <boot.h>
+#include <cpu_local.h>
 #include <fb.h>
 #include <libcinternal/libioP.h>
 #include <palloc.h>
@@ -27,8 +29,17 @@
 #include <hpet.h>
 #include <vmm.h>
 #include <time.h>
+#include <timebase.h>
 #include <unistd.h>
 #include <stdatomic.h>
+#include <symbols.h>
+#include <alloc_debug.h>
+#include <sched.h>
+#include <smp.h>
+
+// Access to generated symbol table for diagnostics.
+extern const struct ksym ksym_table[];
+extern const size_t ksym_count;
 
 // Externs for environment
 extern int init_env();
@@ -41,7 +52,32 @@ static void hcf(void) {
 }
 
 // Example shared atomic time variable
-static _Atomic time_t shared_time;
+static _Atomic uint64_t shared_time;
+
+static uint64_t monotonic_ms(void) {
+    return timebase_monotonic_ns() / 1000000ULL;
+}
+
+static bool check_bytes(const uint8_t *p, size_t n, uint8_t val) {
+    for (size_t i = 0; i < n; i++) {
+        if (p[i] != val) return false;
+    }
+    return true;
+}
+
+static void demo_task(void *arg) {
+    const char *name = (const char *)arg;
+    uint64_t i = 0;
+    for (;;) {
+        if ((i++ % 2000) == 0) {
+            info_printf("%s heartbeat %llu at %llums\n",
+                name, (unsigned long long)i, (unsigned long long)monotonic_ms());
+        }
+        for (volatile int k = 0; k < 20000; ++k) { __asm__ __volatile__("pause"); }
+        task_yield();
+    }
+}
+
 
 static void halt_if(bool condition, const char *message) {
     if (condition) {
@@ -61,7 +97,8 @@ static void verify_boot_requests(void) {
         hhdm_request.response == NULL                       ||
         hhdm_request.response->offset == 0                  ||
         memmap_request.response == NULL                     ||
-        memmap_request.response->entry_count == 0;
+        memmap_request.response->entry_count == 0           ||
+        executable_address_request.response == NULL;
 
     halt_if(invalid, "Bootloader did not supply required data; halting.");
     success_printf("Bootloader structures verified (fb count=%llu, memmap entries=%llu, hhdm=0x%llx).\n",
@@ -72,7 +109,7 @@ static void verify_boot_requests(void) {
 
 static void init_descriptor_tables(void) {
     info_printf("Initializing descriptor tables (GDT/IDT)...\n");
-    gdt_init();
+    gdt_init(0); // BSP is CPU index 0
     idt_init();
     exceptions_install_defaults();
     success_printf("Descriptor tables installed.\n");
@@ -98,13 +135,38 @@ static void init_heap(void) {
     info_printf("Initializing stelloc heap allocator...\n");
     stelloc_init_heap();
 
-    byte *stelloc_test = (byte *)malloc(1);
-    halt_if(stelloc_test == NULL, "Heap allocator failed to return memory.");
+    // Basic allocator self-test (slab + stelloc) with poisoning check.
 
-    *stelloc_test = 0xAF;
-    halt_if(*stelloc_test != 0xAF, "Stelloc heap allocator self-test failed.");
-    free(stelloc_test);
-    success_printf("Stelloc heap allocator initialized.\n");
+    uintptr_t stack_check = 0;
+
+    uint8_t *a = malloc(24);      // slab-sized
+    stack_check = (uintptr_t)a;
+    uint8_t *b = malloc(64);      // slab-sized
+    uint8_t *c = malloc(2048);    // stelloc-sized (above SLAB_MAX_SIZE)
+    halt_if(!a || !b || !c, "Heap allocator failed to return memory.");
+
+#if ALLOC_DEBUG
+    halt_if(!check_bytes(a, 24, ALLOC_POISON_ALLOC), "Slab alloc not poisoned (a)");
+    halt_if(!check_bytes(b, 64, ALLOC_POISON_ALLOC), "Slab alloc not poisoned (b)");
+    halt_if(!check_bytes(c, 64, ALLOC_POISON_ALLOC), "Stelloc alloc not poisoned (c head)");
+#endif
+
+    for (int i = 0; i < 24; i++) a[i] = 0xAB;
+    for (int i = 0; i < 64; i++) b[i] = 0xBC;
+    for (int i = 0; i < 64; i++) c[i] = 0xCD;
+
+    free(a);
+    free(b);
+    free(c);
+
+    // Ensure we can reallocate after frees.
+    uint8_t *r = malloc(24);
+    // Check that we got the same slab back (likely).
+    halt_if((uintptr_t)r != stack_check, "Heap allocator returned different slab address after free.");
+    halt_if(!r, "Heap allocator failed to realloc after free.");
+    free(r);
+
+    success_printf("Heap allocator self-test passed.\n");
 }
 
 static void init_pic(void) {
@@ -152,12 +214,50 @@ static void seed_shared_time(void) {
     success_printf("Time seeded for shared clock.\n");
 }
 
+extern void __attribute__((optimize("O0"))) test_fault(void)
+{
+    asm volatile("int $0x0");
+}
+
+extern void kmain(void);
+
+extern char _kernel_link_base;
+
+static void configure_symbol_slide(void) {
+    uint64_t link_base = (uint64_t)(uintptr_t)&_kernel_link_base;
+    uint64_t actual_base = executable_address_request.response ? executable_address_request.response->virtual_base : 0;
+    uint64_t slide = 0;
+
+    if (actual_base != 0 && actual_base != link_base) {
+        slide = actual_base - link_base;
+    }
+
+    symbols_set_slide(slide);
+
+    const struct ksym *probe = symbol_lookup((uintptr_t)&kmain);
+    uintptr_t expected = (uintptr_t)&kmain - slide;
+    bool valid = (probe != NULL) && (probe->addr == expected);
+
+    if (!valid) {
+        slide = 0;
+        symbols_set_slide(slide);
+        probe = symbol_lookup((uintptr_t)&kmain);
+    }
+}
+
 extern void kmain(void) {
     info_printf("=== Kernel startup begin ===\n");
     verify_boot_requests();
+    configure_symbol_slide();
 
     init_descriptor_tables();
     init_display();
+
+    info_printf("Running log ring self-test...\n");
+    int log_rc = log_ring_self_test();
+    halt_if(log_rc != 0, "Log ring self-test failed.");
+    success_printf("Log ring self-test passed.\n");
+
     init_palloc();
     init_heap();
 
@@ -167,7 +267,13 @@ extern void kmain(void) {
     info_printf("Initializing ACPI...\n");
     acpi_init();
 
+    timebase_init(tsc_hz);
+
     init_timers(tsc_hz);
+
+    smp_init(tsc_hz);
+
+    scheduler_init(timer_hz(), tsc_hz);
 
     // Defer enabling interrupts until after IDT, exception handlers, and timers are configured.
     idt_enable_interrupts();
@@ -176,8 +282,14 @@ extern void kmain(void) {
     init_environment();
     seed_shared_time();
 
+    smp_wait_all_aps();
+
+    task_create("demoA", demo_task, "demoA", 0);
+    task_create("demoB", demo_task, "demoB", 0);
+    scheduler_start();
+
     success_printf("Kernel initialization complete.\n");
     info_printf("=== Kernel startup end ===\n");
-
-    while (true) {}
+    
+    while (true) { __asm__ __volatile__("hlt"); }
 }

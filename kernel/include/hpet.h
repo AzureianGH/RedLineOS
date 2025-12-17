@@ -6,6 +6,9 @@ bool hpet_supported(void);
 void hpet_init(void);
 uint64_t hpet_counter_hz(void);
 void hpet_sleep_ns(uint64_t ns);
+// High-resolution counter access
+uint64_t hpet_counter(void);
+uint64_t hpet_period_fs(void);
 void hpet_enable_periodic_irq(uint8_t comparator, uint64_t ns_interval, uint8_t vector);
 // Convenience: enable comparator periodic mode and route its IRQ through IOAPIC to LAPIC vector.
 bool hpet_enable_and_route_irq(uint8_t comparator, uint64_t ns_interval, uint8_t vector);
