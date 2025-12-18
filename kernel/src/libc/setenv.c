@@ -1,33 +1,33 @@
 #include <stdlib.h>
-#include <stdio.h>
 #include <string.h>
 
-static char **environ; // Environment variable array (NULL-terminated)
+#include <stdio.h>
 
-int init_env()
-{
-    // Start with an empty environment
+char **environ; // Environment variable array (NULL-terminated)
+
+static int ensure_env_initialized(void) {
+    if (environ) return 0;
     environ = (char **)malloc(sizeof(char *));
-    if (!environ) return -1; // Allocation failure
+    if (!environ) return -1;
     environ[0] = NULL;
     return 0;
 }
 
-// List of environment variables
 int setenv(const char *__name, const char *__value, int __replace)
 {
-    // Validate input
-        // __name/__value are declared nonnull; only validate content
-        if (!*__name || strchr(__name, '=')) {
+    if (ensure_env_initialized() != 0) return -1;
+    // __name/__value are declared nonnull; only validate content
+    if (!*__name || strchr(__name, '=')) {
         return -1; // Invalid arguments
     }
 
     // Check if variable already exists
+    size_t name_len = strlen(__name);
     for (char **env = environ; *env; ++env) {
-        if (strncmp(*env, __name, strlen(__name)) == 0 && (*env)[strlen(__name)] == '=') {
+        if (strncmp(*env, __name, name_len) == 0 && (*env)[name_len] == '=') {
             if (__replace) {
                 // Replace existing value
-                size_t new_len = strlen(__name) + 1 + strlen(__value) + 1;
+                size_t new_len = name_len + 1 + strlen(__value) + 1;
                 char *new_entry = (char *)malloc(new_len);
                 if (!new_entry) return -1; // Allocation failure
                 snprintf(new_entry, new_len, "%s=%s", __name, __value);
@@ -39,7 +39,7 @@ int setenv(const char *__name, const char *__value, int __replace)
     }
 
     // Variable does not exist; add new entry
-    size_t new_len = strlen(__name) + 1 + strlen(__value) + 1;
+    size_t new_len = name_len + 1 + strlen(__value) + 1;
     char *new_entry = (char *)malloc(new_len);
     if (!new_entry) return -1; // Allocation failure
     snprintf(new_entry, new_len, "%s=%s", __name, __value);
@@ -71,6 +71,7 @@ int setenv(const char *__name, const char *__value, int __replace)
 
 char *getenv(const char *name)
 {
+    if (ensure_env_initialized() != 0) return NULL;
     if (!*name) return NULL;
     size_t nlen = strlen(name);
     if (!environ) return NULL;
@@ -84,6 +85,7 @@ char *getenv(const char *name)
 
 int unsetenv(const char *name)
 {
+    if (ensure_env_initialized() != 0) return -1;
     if (!*name) return -1;
     size_t nlen = strlen(name);
     if (!environ) return 0;
@@ -108,6 +110,7 @@ int unsetenv(const char *name)
 
 int putenv(char *__string)
 {
+    if (ensure_env_initialized() != 0) return -1;
     if (!*__string) return -1;
     char *eq = strchr(__string, '=');
     if (!eq) return -1; // Invalid format

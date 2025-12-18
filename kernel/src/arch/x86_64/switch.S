@@ -15,9 +15,10 @@ context_switch:
     movq %r12, 24(%rdi)
     movq %rbx, 32(%rdi)
     movq %rbp, 40(%rdi)
-    movq %rsp, 120(%rdi)
     movq (%rsp), %rax        # return address from caller frame
     movq %rax, 128(%rdi)
+    leaq 8(%rsp), %rax       # saved RSP should reflect post-call state
+    movq %rax, 120(%rdi)
 
     movq 120(%rsi), %rsp
     movq 0(%rsi), %r15

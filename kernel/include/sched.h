@@ -30,6 +30,7 @@ typedef struct task {
     uint64_t id;
     char name[TASK_NAME_MAX];
     task_state_t state;
+    uint64_t wake_tick; // absolute scheduler tick to wake from timed sleep
     task_context_t ctx;
     void *stack_base;
     size_t stack_size;
@@ -41,10 +42,12 @@ typedef struct task {
 
 void scheduler_init(uint32_t tick_hz_hint, uint64_t tsc_hz_hint);
 void scheduler_start(void);
+bool scheduler_is_started(void);
 int task_create(const char *name, task_entry_t entry, void *arg, size_t stack_pages);
 void task_yield(void);
 __attribute__((noreturn)) void task_exit(void);
 void task_block(void);
+void task_sleep_ticks(uint64_t ticks);
 int task_wake(task_t *t);
 
 // Called from timer ISRs to drive preemption.

@@ -37,12 +37,6 @@
 #include <sched.h>
 #include <smp.h>
 
-// Access to generated symbol table for diagnostics.
-extern const struct ksym ksym_table[];
-extern const size_t ksym_count;
-
-// Externs for environment
-extern int init_env();
 
 // Halt and catch fire function.
 static void hcf(void) {
@@ -65,16 +59,50 @@ static bool check_bytes(const uint8_t *p, size_t n, uint8_t val) {
     return true;
 }
 
+static uint64_t task0_tick = 0;
+static uint64_t task1_tick = 0;
+static uint64_t task2_tick = 0;
+static uint64_t task3_tick = 0;
+static uint64_t task4_tick = 0;
+static uint64_t task5_tick = 0;
+
 static void demo_task(void *arg) {
-    const char *name = (const char *)arg;
-    uint64_t i = 0;
+    uint64_t task_num = (uint64_t)arg;
     for (;;) {
-        if ((i++ % 2000) == 0) {
-            info_printf("%s heartbeat %llu at %llums\n",
-                name, (unsigned long long)i, (unsigned long long)monotonic_ms());
+        if (task_num == 0) {
+            task0_tick++;
+            usleep(1000); // 1 ms
+        } else if (task_num == 1) {
+            task1_tick++;
+            usleep(200000); // 200 ms
+        } else if (task_num == 2) {
+            task2_tick++;
+            usleep(400000); // 400 ms
+        } else if (task_num == 3) {
+            task3_tick++;
+            usleep(800000); // 800 ms
+        } else if (task_num == 4) {
+            task4_tick++;
+            usleep(1000000); // 1.0 s
+        } else if (task_num == 5) {
+            task5_tick++;
+            usleep(3000000); // 3.0 s
         }
-        for (volatile int k = 0; k < 20000; ++k) { __asm__ __volatile__("pause"); }
-        task_yield();
+    }
+}
+
+static void task_print(void* arg)
+{
+    (void)arg;
+    for (;;) {
+        printf("\rTask0 ticks: %llu | Task1 ticks: %llu | Task2 ticks: %llu | Task3 ticks: %llu | Task4 ticks: %llu | Task5 ticks: %llu      ",
+            (unsigned long long)task0_tick,
+            (unsigned long long)task1_tick,
+            (unsigned long long)task2_tick,
+            (unsigned long long)task3_tick,
+            (unsigned long long)task4_tick,
+            (unsigned long long)task5_tick);
+        usleep(100); // 100 us
     }
 }
 
@@ -200,7 +228,6 @@ static void init_timers(uint64_t tsc_hz) {
 
 static void init_environment(void) {
     info_printf("Initializing Environment...\n");
-    init_env();
 
     int env_rc = setenv("TZ", "EST5EDT,M3.2.0/2,M11.1.0/2", 1);
     halt_if(env_rc != 0, "Failed to set TZ environment variable.");
@@ -212,11 +239,6 @@ static void seed_shared_time(void) {
     shared_time = now;
     printf("Current time: %s", ctime(&now));
     success_printf("Time seeded for shared clock.\n");
-}
-
-extern void __attribute__((optimize("O0"))) test_fault(void)
-{
-    asm volatile("int $0x0");
 }
 
 extern void kmain(void);
@@ -283,15 +305,18 @@ extern void kmain(void) {
     seed_shared_time();
 
     smp_wait_all_aps();
-
-    task_create("demoA", demo_task, "demoA", 0);
-    task_create("demoB", demo_task, "demoB", 0);
     scheduler_start();
 
     success_printf("Kernel initialization complete.\n");
     info_printf("=== Kernel startup end ===\n");
 
-    asm volatile("int $0xFA");
+    task_create("demoA", demo_task, (void*)0, 4);
+    task_create("demoB", demo_task, (void*)1, 4);
+    task_create("demoC", demo_task, (void*)2, 4);
+    task_create("demoD", demo_task, (void*)3, 4);
+    task_create("demoE", demo_task, (void*)4, 4);
+    task_create("demoF", demo_task, (void*)5, 4);
+    task_create("printer", task_print, NULL, 4);
     
     while (true) { __asm__ __volatile__("hlt"); }
 }

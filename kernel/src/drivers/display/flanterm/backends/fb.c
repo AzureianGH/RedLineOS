@@ -445,6 +445,10 @@ static void plot_char_scaled_canvas(struct flanterm_context *_ctx, struct flante
     x = ctx->offset_x + x * ctx->glyph_width;
     y = ctx->offset_y + y * ctx->glyph_height;
 
+    if (x + ctx->glyph_width > ctx->width || y + ctx->glyph_height > ctx->height) {
+        return;
+    }
+
     bool *glyph = &ctx->font_bool[c->c * ctx->font_height * ctx->font_width];
     // naming: fx,fy for font coordinates, gx,gy for glyph coordinates
     for (size_t gy = 0; gy < ctx->glyph_height; gy++) {
@@ -471,13 +475,17 @@ static void plot_char_scaled_uncanvas(struct flanterm_context *_ctx, struct flan
         return;
     }
 
+    x = ctx->offset_x + x * ctx->glyph_width;
+    y = ctx->offset_y + y * ctx->glyph_height;
+
+    if (x + ctx->glyph_width > ctx->width || y + ctx->glyph_height > ctx->height) {
+        return;
+    }
+
     uint32_t default_bg = ctx->default_bg;
 
     uint32_t bg = c->bg == 0xffffffff ? default_bg : c->bg;
     uint32_t fg = c->fg == 0xffffffff ? default_bg : c->fg;
-
-    x = ctx->offset_x + x * ctx->glyph_width;
-    y = ctx->offset_y + y * ctx->glyph_height;
 
     bool *glyph = &ctx->font_bool[c->c * ctx->font_height * ctx->font_width];
     // naming: fx,fy for font coordinates, gx,gy for glyph coordinates
@@ -504,6 +512,10 @@ static void plot_char_unscaled_canvas(struct flanterm_context *_ctx, struct flan
 
     x = ctx->offset_x + x * ctx->glyph_width;
     y = ctx->offset_y + y * ctx->glyph_height;
+
+    if (x + ctx->glyph_width > ctx->width || y + ctx->glyph_height > ctx->height) {
+        return;
+    }
 
     bool *glyph = &ctx->font_bool[c->c * ctx->font_height * ctx->font_width];
     // naming: fx,fy for font coordinates, gx,gy for glyph coordinates
@@ -534,6 +546,10 @@ static void plot_char_unscaled_uncanvas(struct flanterm_context *_ctx, struct fl
     x = ctx->offset_x + x * ctx->glyph_width;
     y = ctx->offset_y + y * ctx->glyph_height;
 
+    if (x + ctx->glyph_width > ctx->width || y + ctx->glyph_height > ctx->height) {
+        return;
+    }
+
     bool *glyph = &ctx->font_bool[c->c * ctx->font_height * ctx->font_width];
     // naming: fx,fy for font coordinates, gx,gy for glyph coordinates
     for (size_t gy = 0; gy < ctx->glyph_height; gy++) {
@@ -554,6 +570,15 @@ static void push_to_queue(struct flanterm_context *_ctx, struct flanterm_fb_char
 
     if (x >= _ctx->cols || y >= _ctx->rows) {
         return;
+    }
+
+    size_t queue_capacity = _ctx->rows * _ctx->cols;
+    if (ctx->queue_i >= queue_capacity) {
+        // Flush early to avoid writing past the queue buffer when large writes/scrolls pile up.
+        _ctx->double_buffer_flush(_ctx);
+        if (ctx->queue_i >= queue_capacity) {
+            return;
+        }
     }
 
     size_t i = y * _ctx->cols + x;
@@ -818,8 +843,9 @@ static void flanterm_fb_raw_putchar(struct flanterm_context *_ctx, uint8_t c) {
             ctx->cursor_y--;
             flanterm_fb_scroll(_ctx);
         }
-        if (ctx->cursor_y >= _ctx->cols) {
-            ctx->cursor_y = _ctx->cols - 1;
+        if (ctx->cursor_y >= _ctx->rows) {
+            // Clamp against rows, not cols, to avoid OOB access when wrapping.
+            ctx->cursor_y = _ctx->rows - 1;
         }
     }
 

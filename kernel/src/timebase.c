@@ -40,15 +40,7 @@ void timebase_init(uint64_t tsc_hz_hint) {
     g_hpet_hz = 0;
     g_tsc_hz = tsc_hz_hint;
 
-    if (hpet_supported()) {
-        hpet_init();
-        g_hpet_hz = hpet_counter_hz();
-        if (g_hpet_hz) {
-            g_use_hpet = true;
-            info_printf("timebase: using HPET (%llu Hz)\n", (unsigned long long)g_hpet_hz);
-            return;
-        }
-    }
+    // HPET is currently unstable in our setup (returns stuck/garbage counter), so force TSC.
     if (g_tsc_hz == 0) {
         g_tsc_hz = tsc_calibrate_hz(1193182u, 10);
     }

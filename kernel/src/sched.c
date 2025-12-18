@@ -13,6 +13,7 @@ extern void context_switch(task_context_t *prev, task_context_t *next);
 static spinlock_t sched_lock;
 static task_t *current_task;
 static task_t *rq_head, *rq_tail;
+static task_t *sleep_head;
 static task_t bootstrap_task;
 static task_t *idle_task;
 static uint64_t next_tid = 1;
@@ -80,6 +81,41 @@ static task_t *dequeue(void) {
         t->next = NULL;
     }
     return t;
+}
+
+static void sleep_insert(task_t *t) {
+    if (!t) return;
+    t->next = NULL;
+    if (!sleep_head || t->wake_tick < sleep_head->wake_tick) {
+        t->next = sleep_head;
+        sleep_head = t;
+        return;
+    }
+    task_t *cur = sleep_head;
+    while (cur->next && cur->next->wake_tick <= t->wake_tick) {
+        cur = cur->next;
+    }
+    t->next = cur->next;
+    cur->next = t;
+}
+
+static bool sleep_remove(task_t *t) {
+    if (!t || !sleep_head) return false;
+    if (sleep_head == t) {
+        sleep_head = t->next;
+        t->next = NULL;
+        return true;
+    }
+    task_t *cur = sleep_head;
+    while (cur->next && cur->next != t) {
+        cur = cur->next;
+    }
+    if (cur->next == t) {
+        cur->next = t->next;
+        t->next = NULL;
+        return true;
+    }
+    return false;
 }
 
 static void idle_entry(void *arg) {
@@ -151,7 +187,7 @@ void scheduler_init(uint32_t tick_hz_hint, uint64_t tsc_hz_hint) {
     (void)tsc_hz_hint;
     spinlock_init(&sched_lock);
     sched_started = false;
-    rq_head = rq_tail = NULL;
+    rq_head = rq_tail = sleep_head = NULL;
     tick_counter = 0;
     if (tick_hz_hint >= 1000) {
         timeslice_ticks = tick_hz_hint / 200; // ~5ms
@@ -190,6 +226,10 @@ void scheduler_start(void) {
     sched_started = true;
     // If there is any runnable task, yield into it to start scheduling
     task_yield();
+}
+
+bool scheduler_is_started(void) {
+    return sched_started;
 }
 
 task_t *scheduler_current(void) { return current_task; }
@@ -263,11 +303,40 @@ void task_block(void) {
     context_switch(&prev->ctx, &next->ctx);
 }
 
+void task_sleep_ticks(uint64_t ticks) {
+    if (ticks == 0) { task_yield(); return; }
+    if (!sched_started) {
+        uint64_t start = (uint64_t)timer_get_ticks();
+        while (((uint64_t)timer_get_ticks() - start) < ticks) {
+            __asm__ __volatile__("pause");
+        }
+        return;
+    }
+    irq_disable();
+    spin_lock(&sched_lock);
+    task_t *prev = current_task;
+    prev->state = TASK_BLOCKED;
+    prev->wake_tick = tick_counter + ticks;
+    sleep_insert(prev);
+    task_t *next = dequeue();
+    if (!next) {
+        spin_unlock(&sched_lock);
+        error_printf("sched: all tasks sleeping, halting\n");
+        for (;;) { __asm__ __volatile__("cli; hlt"); }
+    }
+    current_task = next;
+    spin_unlock(&sched_lock);
+    irq_enable();
+    context_switch(&prev->ctx, &next->ctx);
+}
+
 int task_wake(task_t *t) {
     if (!t || t->state != TASK_BLOCKED) return -1;
     irq_disable();
     spin_lock(&sched_lock);
+    sleep_remove(t);
     t->state = TASK_RUNNABLE;
+    t->wake_tick = 0;
     enqueue(t);
     spin_unlock(&sched_lock);
     irq_enable();
@@ -277,6 +346,19 @@ int task_wake(task_t *t) {
 void scheduler_tick(isr_frame_t *frame) {
     if (!sched_started) return;
     ++tick_counter;
+    // Wake any sleepers whose deadlines have passed
+    if (sleep_head && sleep_head->wake_tick <= tick_counter) {
+        spin_lock(&sched_lock);
+        while (sleep_head && sleep_head->wake_tick <= tick_counter) {
+            task_t *t = sleep_head;
+            sleep_head = t->next;
+            t->next = NULL;
+            t->state = TASK_RUNNABLE;
+            t->wake_tick = 0;
+            enqueue(t);
+        }
+        spin_unlock(&sched_lock);
+    }
     if (tick_log_div && (tick_counter % tick_log_div) == 0) {
         debug_printf("sched: tick=%llu current=%s\n",
                      (unsigned long long)tick_counter,

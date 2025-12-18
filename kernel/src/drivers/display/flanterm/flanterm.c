@@ -28,6 +28,7 @@
 #include <stdbool.h>
 
 #include <flanterm.h>
+#include <spinlock.h>
 
 // Tries to implement this standard for terminfo
 // https://man7.org/linux/man-pages/man4/console_codes.4.html
@@ -65,10 +66,17 @@ static const uint32_t col256[] = {
     0xa8a8a8, 0xb2b2b2, 0xbcbcbc, 0xc6c6c6, 0xd0d0d0, 0xdadada, 0xe4e4e4, 0xeeeeee
 };
 
+static spinlock_t flanterm_lock;
+static bool flanterm_lock_inited = false;
+
 #define CHARSET_DEFAULT 0
 #define CHARSET_DEC_SPECIAL 1
 
 void flanterm_context_reinit(struct flanterm_context *ctx) {
+    if (!flanterm_lock_inited) {
+        spinlock_init(&flanterm_lock);
+        flanterm_lock_inited = true;
+    }
     ctx->tab_size = 8;
     ctx->autoflush = true;
     ctx->cursor_enabled = true;
@@ -103,6 +111,7 @@ void flanterm_context_reinit(struct flanterm_context *ctx) {
 static void flanterm_putchar(struct flanterm_context *ctx, uint8_t c);
 
 void flanterm_write(struct flanterm_context *ctx, const char *buf, size_t count) {
+    spin_lock(&flanterm_lock);
     for (size_t i = 0; i < count; i++) {
         flanterm_putchar(ctx, buf[i]);
     }
@@ -110,6 +119,7 @@ void flanterm_write(struct flanterm_context *ctx, const char *buf, size_t count)
     if (ctx->autoflush) {
         ctx->double_buffer_flush(ctx);
     }
+    spin_unlock(&flanterm_lock);
 }
 
 static void sgr(struct flanterm_context *ctx) {
