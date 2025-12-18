@@ -11,3 +11,6 @@ uint32_t smp_cpu_count(void);
 
 // Blocking wait until all APs have reported online (bounded by init sequence).
 void smp_wait_all_aps(void);
+
+// Broadcast a halt IPI to all other CPUs (used during panic paths).
+void smp_halt_others(void);

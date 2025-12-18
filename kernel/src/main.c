@@ -290,6 +290,8 @@ extern void kmain(void) {
 
     success_printf("Kernel initialization complete.\n");
     info_printf("=== Kernel startup end ===\n");
+
+    asm volatile("int $0xFA");
     
     while (true) { __asm__ __volatile__("hlt"); }
 }

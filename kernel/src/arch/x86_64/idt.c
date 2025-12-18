@@ -42,6 +42,7 @@ extern void irq_stub_40(void); extern void irq_stub_41(void); extern void irq_st
 extern void irq_stub_44(void); extern void irq_stub_45(void); extern void irq_stub_46(void); extern void irq_stub_47(void);
 // LAPIC extra vectors
 extern void isr_stub_240(void);
+extern void isr_stub_241(void);
 extern void isr_stub_242(void);
 extern void isr_stub_255(void);
 
@@ -114,8 +115,9 @@ void idt_init(void) {
         set_idt_gate(46, irq_stub_46, gate, 0);
         set_idt_gate(47, irq_stub_47, gate, 0);
 
-        // LAPIC timer and spurious vectors
+        // LAPIC timer, panic, and spurious vectors
         set_idt_gate(240, isr_stub_240, gate, 0);
+        set_idt_gate(241, isr_stub_241, gate, 0);
         set_idt_gate(242, isr_stub_242, gate, 0);
         set_idt_gate(255, isr_stub_255, gate, 0);
 

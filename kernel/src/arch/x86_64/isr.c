@@ -3,15 +3,23 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdatomic.h>
 #include <panic.h>
 #include <vheap.h>
 #include <vmm.h>
 #include <lprintf.h>
 #include <symbols.h>
+#include <smp.h>
+#include <cpu_local.h>
+#include <lapic.h>
 
 #define MAX_HANDLERS 8
 
 static isr_handler_t handlers[256][MAX_HANDLERS];
+
+extern void smp_halt_others(void);
+
+static atomic_flag panic_once = ATOMIC_FLAG_INIT;
 
 int isr_register(uint8_t vector, isr_handler_t h) {
     for (int i = 0; i < MAX_HANDLERS; ++i) {
@@ -158,6 +166,8 @@ static size_t disassemble_one(const unsigned char *p, uint64_t rip, struct disas
 
     uint8_t op = p[idx++];
 
+    snprintf(out->op1, sizeof(out->op1), "0x%02hhx", (unsigned long long)(op));
+
     switch (op) {
         case 0x90:
             out->mnemonic = "nop";
@@ -205,6 +215,17 @@ static size_t disassemble_one(const unsigned char *p, uint64_t rip, struct disas
             out->target = rip + out->len + rel;
             return out->len;
         }
+        case 0x99: { // cqo (sign-extend rax into rdx:rax)
+            out->mnemonic = "cqo";
+            out->len = idx;
+            return out->len;
+        }
+        case 0xF4: { // hlt
+            out->mnemonic = "hlt";
+            out->len = idx;
+            return out->len;
+        }
+            
     }
 
     if (op >= 0x70 && op <= 0x7F) { // short conditional branches
@@ -228,6 +249,11 @@ static size_t disassemble_one(const unsigned char *p, uint64_t rip, struct disas
             out->len = idx;
             return out->len;
         }
+        if (op2 == 0x0B) { // ud2
+            out->mnemonic = "ud2";
+            out->len = idx;
+            return out->len;
+        }
         if (op2 >= 0x80 && op2 <= 0x8F) { // jcc rel32
             static const char *conds[16] = {
                 "jo","jno","jb","jae","je","jne","jbe","ja",
@@ -241,7 +267,9 @@ static size_t disassemble_one(const unsigned char *p, uint64_t rip, struct disas
             out->target = rip + out->len + rel;
             return out->len;
         }
-        // Unknown two-byte opcode
+        // Generic two-byte opcode: note opcode byte and advance past op2
+        snprintf(out->op1, sizeof(out->op1), "0x0f%02x", op2);
+        out->mnemonic = "0f";
         out->len = idx;
         return out->len;
     }
@@ -289,6 +317,7 @@ static size_t disassemble_one(const unsigned char *p, uint64_t rip, struct disas
         case 0x85: // test r/m64, r64
         case 0x31: // xor r/m64, r64
         case 0xFF: // inc/dec/call/jmp r/m64
+        case 0xF7: // group 3 (test/not/neg/mul/imul/div/idiv)
         case 0xC7: // mov r/m64, imm32
             break;
         default:
@@ -403,6 +432,37 @@ static size_t disassemble_one(const unsigned char *p, uint64_t rip, struct disas
             out->len = idx + modrm_consumed;
             return out->len;
         }
+        case 0xF7: { // group 3
+            int subop = (modrm >> 3) & 7;
+            if (subop == 0) { // test r/m64, imm32
+                uint32_t imm = *(const uint32_t *)(p + idx + modrm_consumed);
+                out->mnemonic = "test";
+                snprintf(out->op1, sizeof(out->op1), "%s", rm_buf);
+                snprintf(out->op2, sizeof(out->op2), "0x%08x", imm);
+                out->len = idx + modrm_consumed + 4;
+                return out->len;
+            } else if (subop == 2) { // not r/m64
+                out->mnemonic = "not";
+                snprintf(out->op1, sizeof(out->op1), "%s", rm_buf);
+            } else if (subop == 3) { // neg r/m64
+                out->mnemonic = "neg";
+                snprintf(out->op1, sizeof(out->op1), "%s", rm_buf);
+            } else if (subop == 4) { // mul r/m64
+                out->mnemonic = "mul";
+                snprintf(out->op1, sizeof(out->op1), "%s", rm_buf);
+            } else if (subop == 5) { // imul r/m64
+                out->mnemonic = "imul";
+                snprintf(out->op1, sizeof(out->op1), "%s", rm_buf);
+            } else if (subop == 6) { // div r/m64
+                out->mnemonic = "div";
+                snprintf(out->op1, sizeof(out->op1), "%s", rm_buf);
+            } else if (subop == 7) { // idiv r/m64
+                out->mnemonic = "idiv";
+                snprintf(out->op1, sizeof(out->op1), "%s", rm_buf);
+            }
+            out->len = idx + modrm_consumed;
+            return out->len;
+        }
     }
 
     out->len = idx + modrm_consumed;
@@ -422,6 +482,7 @@ static void panic_disassemble(uint64_t rip) {
         if (len == 0) {
             len = 1;
         }
+        int is_faulting = ((cur_addr + len == rip) && (!strncmp(insn.mnemonic, "int", 3))) || (cur_addr == rip);
         printf(" 0x%016llx: %-7s", (unsigned long long)cur_addr, insn.mnemonic);
         if (insn.op1[0]) {
             printf(" %s", insn.op1);
@@ -430,11 +491,24 @@ static void panic_disassemble(uint64_t rip) {
             }
         }
         printf(" ; len=%zu", len);
+        if (is_faulting) {
+            printf(" <FAULTING>");
+        }
         if (cur_addr == rip) {
             printf(" <RIP>");
         }
         if (insn.is_branch) {
             printf(" -> 0x%016llx", (unsigned long long)insn.target);
+            const struct ksym *tsym = symbol_lookup((uintptr_t)insn.target);
+            if (tsym) {
+                unsigned long long base = (unsigned long long)(tsym->addr + symbols_get_slide());
+                unsigned long long off = (insn.target >= base) ? (unsigned long long)(insn.target - base) : 0ULL;
+                if (off == 0) {
+                    printf(" <%s>", tsym->name);
+                } else {
+                    printf(" <%s+0x%llx>", tsym->name, off);
+                }
+            }
         }
         printf("\n");
         int is_term = 0;
@@ -492,11 +566,16 @@ static void panic_backtrace(const isr_frame_t* f) {
 }
 
 void kernel_panic(const char* reason, const isr_frame_t* f) {
+    __asm__ __volatile__("cli");
+    if (atomic_flag_test_and_set_explicit(&panic_once, memory_order_acq_rel)) {
+        for (;;) { __asm__ __volatile__("cli; hlt"); }
+    }
+
     printf("\n===== KERNEL PANIC =====\n");
     printf("Reason: %s\n\n", reason);
 
-    // Dump recent logs first so the most relevant history is visible up front.
-    log_dump_recent();
+    smp_halt_others();
+        printf("[panic] other CPUs halted\n");
 
     printf(
         "RAX=0x%016llx RBX=0x%016llx RCX=0x%016llx RDX=0x%016llx\n"
@@ -529,9 +608,6 @@ void kernel_panic(const char* reason, const isr_frame_t* f) {
         (unsigned long long) f->err_code
     );
 
-    if (f->int_no == 14) {
-        dump_page_fault(f->err_code);
-    }
     panic_backtrace(f);
 
     for (;;) {

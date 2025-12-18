@@ -32,6 +32,8 @@ static inline uint32_t lapic_read(uint32_t off) { return *lapic_reg(off); }
 #define LAPIC_REG_TIMER_INIT  0x380
 #define LAPIC_REG_TIMER_CURR  0x390
 #define LAPIC_REG_TIMER_DIV   0x3E0
+#define LAPIC_REG_ICR_LOW     0x300
+#define LAPIC_REG_ICR_HIGH    0x310
 
 #define SVR_ENABLE            0x100
 
@@ -42,6 +44,14 @@ static void lapic_timer_isr(isr_frame_t* f) {
     for (int i = 0; i < 256; ++i) if (timer_cbs[i]) timer_cbs[i]();
     scheduler_tick(f);
     lapic_write(LAPIC_REG_EOI, 0);
+}
+
+void lapic_send_ipi_all_others(uint8_t vector) {
+    if (!lapic_base) return;
+    // Destination shorthand: all excluding self (0b10 << 18)
+    uint32_t icr_low = (uint32_t)vector | (0b10u << 18);
+    lapic_write(LAPIC_REG_ICR_HIGH, 0); // no explicit dest when using shorthand
+    lapic_write(LAPIC_REG_ICR_LOW, icr_low);
 }
 
 bool lapic_supported(void) {

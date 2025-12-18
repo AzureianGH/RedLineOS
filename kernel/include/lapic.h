@@ -4,12 +4,14 @@
 
 // Vector used for LAPIC timer interrupts; ensure an IDT entry exists
 #define LAPIC_TIMER_VECTOR 0xF0
+#define LAPIC_PANIC_VECTOR 0xF1
 
 typedef void (*lapic_timer_cb_t)(void);
 
 bool lapic_supported(void);
 void lapic_enable(void);
 void lapic_eoi(void);
+void lapic_send_ipi_all_others(uint8_t vector);
 
 // Timer API (periodic)
 void lapic_timer_init(uint32_t hz, uint64_t tsc_hz_hint);

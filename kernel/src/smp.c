@@ -6,10 +6,12 @@
 #include <gdt.h>
 #include <idt.h>
 #include <lapic.h>
+#include <isr.h>
 #include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <cpu_local.h>
+#include <stdbool.h>
 
 extern volatile struct LIMINE_MP(request) mp_request;
 
@@ -18,6 +20,7 @@ extern volatile struct LIMINE_MP(request) mp_request;
 #define PAGE_SIZE 0x1000ULL
 
 static _Atomic uint32_t g_cpu_online = 1; // BSP counts as online
+static _Atomic uint32_t g_cpu_halted = 0; // number of APs that acknowledged the panic IPI
 static uint32_t g_cpu_total = 1;
 
 struct ap_bootstrap {
@@ -55,6 +58,11 @@ static void smp_ap_entry(struct LIMINE_MP(info) *info) {
     cpu_local_t local = {
         .cpu_index = cpu_index,
         .lapic_id = info->lapic_id,
+        .tss_base = NULL,
+        .current_task = NULL,
+        .idle_task = NULL,
+        .tick_count = 0,
+        .online = true,
     };
     cpu_local_set(&local);
     enable_sse_on_this_cpu();
@@ -81,6 +89,11 @@ void smp_init(uint64_t tsc_hz_hint) {
     static cpu_local_t bsp_local;
     bsp_local.cpu_index = 0;
     bsp_local.lapic_id = resp->bsp_lapic_id;
+    bsp_local.tss_base = NULL;
+    bsp_local.current_task = NULL;
+    bsp_local.idle_task = NULL;
+    bsp_local.tick_count = 0;
+    bsp_local.online = true;
     cpu_local_set(&bsp_local);
     info_printf("smp: cpus=%u bsp_lapic=%u flags=%#x\n",
                 g_cpu_total, resp->bsp_lapic_id, resp->flags);
@@ -120,6 +133,33 @@ uint32_t smp_cpu_count(void) {
 
 void smp_wait_all_aps(void) {
     while (atomic_load_explicit(&g_cpu_online, memory_order_relaxed) < g_cpu_total) {
+        __asm__ __volatile__("pause");
+    }
+}
+
+static void smp_panic_ipi(isr_frame_t* f) {
+    (void)f;
+    atomic_fetch_add_explicit(&g_cpu_halted, 1, memory_order_relaxed);
+    for (;;) { __asm__ __volatile__("cli; hlt"); }
+}
+
+void smp_halt_others(void) {
+    static bool registered = false;
+    uint32_t online = atomic_load_explicit(&g_cpu_online, memory_order_relaxed);
+    if (online <= 1) return; // BSP only
+
+    if (!registered) {
+        isr_register(LAPIC_PANIC_VECTOR, smp_panic_ipi);
+        registered = true;
+    }
+    uint32_t targets = online - 1; // exclude the caller
+    atomic_store_explicit(&g_cpu_halted, 0, memory_order_relaxed);
+
+    // Broadcast to all other CPUs
+    lapic_send_ipi_all_others(LAPIC_PANIC_VECTOR);
+
+    // Wait until all online peers have acknowledged and halted to avoid interleaved output
+    while (atomic_load_explicit(&g_cpu_halted, memory_order_acquire) < targets) {
         __asm__ __volatile__("pause");
     }
 }

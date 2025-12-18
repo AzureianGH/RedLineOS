@@ -1,9 +1,11 @@
 #include <displaystandard.h>
 #include <flanterm.h>
 #include <ftfb.h>
+#include <spinlock.h>
 
 struct fb *global_fb;
 struct flanterm_context *ft_ctx;
+static spinlock_t ft_lock = {0};
 
 void displaystandard_init(struct fb *fb)
 {
@@ -28,6 +30,8 @@ void displaystandard_init(struct fb *fb)
 void displaystandard_putc(char c)
 {
     if (global_fb != NULL && ft_ctx != NULL) {
+        spin_lock(&ft_lock);
         flanterm_write(ft_ctx, &c, 1);
+        spin_unlock(&ft_lock);
     }
 }
